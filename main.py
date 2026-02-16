@@ -84,7 +84,6 @@ class AttendanceApp(ctk.CTk):
         self.status_label.configure(text=f"Status: {text}")
 
     def load_encodings(self):
-        """Loads face encodings and updates the list."""
         if os.path.exists(ENCODINGS_FILE):
             try:
                 data = pickle.loads(open(ENCODINGS_FILE, "rb").read())
@@ -92,13 +91,10 @@ class AttendanceApp(ctk.CTk):
                 self.known_names = data["names"]
                 self.update_user_list_display()
                 self.update_status(f"Loaded {len(self.known_names)} users.")
-            except Exception as e:
+            except:
                 self.update_status("Error loading data.")
-        else:
-            self.update_status("No database found.")
 
     def update_user_list_display(self):
-        """Refreshes the sidebar list of users."""
         self.user_list.configure(state="normal")
         self.user_list.delete("0.0", "end")
         for name in self.known_names:
@@ -108,7 +104,6 @@ class AttendanceApp(ctk.CTk):
     def register_face(self):
         s_id = self.id_entry.get()
         name = self.name_entry.get()
-
         if not s_id or not name:
             self.update_status("Error: Enter ID and Name!")
             return
@@ -117,32 +112,22 @@ class AttendanceApp(ctk.CTk):
         ret, frame = cap.read()
         cap.release()
 
-        if not ret:
-            self.update_status("Error: Camera failed.")
-            return
-
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        boxes = face_recognition.face_locations(rgb_frame)
-        
-        if not boxes:
-            self.update_status("No face detected. Try again.")
-            return
-        
-        encodings = face_recognition.face_encodings(rgb_frame, boxes)
-        
-        if encodings:
-            new_name = f"{name} ({s_id})"
-            self.known_encodings.append(encodings[0])
-            self.known_names.append(new_name)
-            
-            data = {"encodings": self.known_encodings, "names": self.known_names}
-            with open(ENCODINGS_FILE, "wb") as f:
-                f.write(pickle.dumps(data))
-            
-            self.update_user_list_display()
-            self.update_status(f"Registered: {name}")
-            self.id_entry.delete(0, 'end')
-            self.name_entry.delete(0, 'end')
+        if ret:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            boxes = face_recognition.face_locations(rgb_frame)
+            if boxes:
+                encodings = face_recognition.face_encodings(rgb_frame, boxes)
+                if encodings:
+                    new_name = f"{name} ({s_id})"
+                    self.known_encodings.append(encodings[0])
+                    self.known_names.append(new_name)
+                    data = {"encodings": self.known_encodings, "names": self.known_names}
+                    with open(ENCODINGS_FILE, "wb") as f:
+                        f.write(pickle.dumps(data))
+                    self.update_user_list_display()
+                    self.update_status(f"Registered: {name}")
+                    self.id_entry.delete(0, 'end')
+                    self.name_entry.delete(0, 'end')
 
     def mark_attendance(self, name):
         now = datetime.now()
@@ -163,25 +148,23 @@ class AttendanceApp(ctk.CTk):
         self.update_status(f"Marked: {name}")
 
     def start_attendance(self):
-        if self.is_running:
-            return
+        if self.is_running: return
         self.is_running = True
         self.cap = cv2.VideoCapture(0)
         self.update_camera()
 
     def stop_camera(self):
         self.is_running = False
-        if self.cap:
-            self.cap.release()
+        if self.cap: self.cap.release()
         self.camera_label.configure(image="")
         self.update_status("Camera Stopped")
 
     def update_camera(self):
-        if not self.is_running:
-            return
+        if not self.is_running: return
 
         ret, frame = self.cap.read()
         if ret:
+            # Resize for speed
             small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
             rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
@@ -191,19 +174,34 @@ class AttendanceApp(ctk.CTk):
             for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
                 matches = face_recognition.compare_faces(self.known_encodings, face_encoding)
                 name = "Unknown"
+                confidence = "0%" # Default
+
                 face_distances = face_recognition.face_distance(self.known_encodings, face_encoding)
                 
                 if len(face_distances) > 0:
                     best_match_index = np.argmin(face_distances)
                     if matches[best_match_index]:
                         name = self.known_names[best_match_index]
+                        # Calculate confidence (Lower distance = higher confidence)
+                        match_confidence = max(0, (1.0 - face_distances[best_match_index]) * 100)
+                        confidence = f"{int(match_confidence)}%"
                         self.mark_attendance(name)
 
+                # Scale back up
                 top *= 4; right *= 4; bottom *= 4; left *= 4
+
+                # Fancy UI: Green box for match, Red for unknown
                 color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+                
+                # Draw Box
                 cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+                
+                # Draw Background for Text
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
-                cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+                
+                # Draw Name and Confidence
+                display_text = f"{name} {confidence}" if name != "Unknown" else "Unknown"
+                cv2.putText(frame, display_text, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
 
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
             img = Image.fromarray(img)
