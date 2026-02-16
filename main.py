@@ -55,13 +55,22 @@ class AttendanceApp(ctk.CTk):
         self.btn_stop = ctk.CTkButton(self.sidebar, text="Stop Camera", command=self.stop_camera, fg_color="#C0392B", hover_color="#922B21")
         self.btn_stop.pack(pady=5, padx=20)
 
-        # Registered Users List
-        self.list_label = ctk.CTkLabel(self.sidebar, text="Registered Users:", anchor="w")
-        self.list_label.pack(pady=(20, 5), padx=20, fill="x")
+        # Tab View for Users/Logs
+        self.tab_view = ctk.CTkTabview(self.sidebar, width=220, height=250)
+        self.tab_view.pack(pady=20, padx=10)
         
-        self.user_list = ctk.CTkTextbox(self.sidebar, height=150)
-        self.user_list.pack(pady=5, padx=20, fill="x")
+        self.tab_users = self.tab_view.add("Users")
+        self.tab_logs = self.tab_view.add("Live Logs")
+
+        # Registered Users List
+        self.user_list = ctk.CTkTextbox(self.tab_users, height=200)
+        self.user_list.pack(fill="both", expand=True)
         self.user_list.configure(state="disabled")
+
+        # Live Logs List
+        self.log_list = ctk.CTkTextbox(self.tab_logs, height=200)
+        self.log_list.pack(fill="both", expand=True)
+        self.log_list.configure(state="disabled")
 
         self.status_label = ctk.CTkLabel(self.sidebar, text="Status: Ready", text_color="gray")
         self.status_label.pack(side="bottom", pady=20)
@@ -78,6 +87,7 @@ class AttendanceApp(ctk.CTk):
         self.is_running = False
         self.known_encodings = []
         self.known_names = []
+        self.attendance_set = set() # To keep track of who is already marked in this session
         self.load_encodings()
 
     def update_status(self, text):
@@ -100,6 +110,11 @@ class AttendanceApp(ctk.CTk):
         for name in self.known_names:
             self.user_list.insert("end", f"• {name}\n")
         self.user_list.configure(state="disabled")
+
+    def log_attendance_gui(self, name, time_str):
+        self.log_list.configure(state="normal")
+        self.log_list.insert("0.0", f"[{time_str}] {name}\n") # Insert at top
+        self.log_list.configure(state="disabled")
 
     def register_face(self):
         s_id = self.id_entry.get()
@@ -130,13 +145,19 @@ class AttendanceApp(ctk.CTk):
                     self.name_entry.delete(0, 'end')
 
     def mark_attendance(self, name):
+        # Optimization: Don't write to file if already marked in this runtime session
+        if name in self.attendance_set:
+            return
+
         now = datetime.now()
         time_str = now.strftime('%H:%M:%S')
         file_exists = os.path.isfile(ATTENDANCE_FILE)
         
+        # Double check CSV to be safe
         if file_exists:
             df = pd.read_csv(ATTENDANCE_FILE)
             if name in df['Name'].values:
+                self.attendance_set.add(name)
                 return
 
         with open(ATTENDANCE_FILE, 'a', newline='') as f:
@@ -145,6 +166,8 @@ class AttendanceApp(ctk.CTk):
                 writer.writerow(['Name', 'Time'])
             writer.writerow([name, time_str])
         
+        self.attendance_set.add(name)
+        self.log_attendance_gui(name, time_str) # Update GUI
         self.update_status(f"Marked: {name}")
 
     def start_attendance(self):
@@ -164,7 +187,6 @@ class AttendanceApp(ctk.CTk):
 
         ret, frame = self.cap.read()
         if ret:
-            # Resize for speed
             small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
             rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
@@ -174,34 +196,23 @@ class AttendanceApp(ctk.CTk):
             for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
                 matches = face_recognition.compare_faces(self.known_encodings, face_encoding)
                 name = "Unknown"
-                confidence = "0%" # Default
+                confidence = "0%"
 
                 face_distances = face_recognition.face_distance(self.known_encodings, face_encoding)
-                
                 if len(face_distances) > 0:
                     best_match_index = np.argmin(face_distances)
                     if matches[best_match_index]:
                         name = self.known_names[best_match_index]
-                        # Calculate confidence (Lower distance = higher confidence)
                         match_confidence = max(0, (1.0 - face_distances[best_match_index]) * 100)
                         confidence = f"{int(match_confidence)}%"
                         self.mark_attendance(name)
 
-                # Scale back up
                 top *= 4; right *= 4; bottom *= 4; left *= 4
-
-                # Fancy UI: Green box for match, Red for unknown
                 color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
                 
-                # Draw Box
                 cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-                
-                # Draw Background for Text
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
-                
-                # Draw Name and Confidence
-                display_text = f"{name} {confidence}" if name != "Unknown" else "Unknown"
-                cv2.putText(frame, display_text, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+                cv2.putText(frame, f"{name} {confidence}", (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
 
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
             img = Image.fromarray(img)
