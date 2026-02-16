@@ -10,3 +10,14 @@ import datetime
 import time
 import hashlib
 from pathlib import Path
+
+
+
+#colors
+
+BG_COLOR = "#1c1c1c"
+ACCENT_COLOR = "#00fcca"
+TEXT_COLOR = "#ffffff"
+
+
+class AttendanceApp:
