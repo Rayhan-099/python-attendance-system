@@ -52,6 +52,9 @@ class AttendanceApp(ctk.CTk):
         self.btn_attendance = ctk.CTkButton(self.sidebar, text="Start Attendance", command=self.start_attendance, fg_color="#3B8ED0", hover_color="#2C6E9F")
         self.btn_attendance.pack(pady=5, padx=20)
         
+        self.btn_manual = ctk.CTkButton(self.sidebar, text="Manual Override", command=self.manual_attendance, fg_color="#E67E22", hover_color="#D35400")
+        self.btn_manual.pack(pady=5, padx=20)
+
         self.btn_stop = ctk.CTkButton(self.sidebar, text="Stop Camera", command=self.stop_camera, fg_color="#C0392B", hover_color="#922B21")
         self.btn_stop.pack(pady=5, padx=20)
 
@@ -87,7 +90,7 @@ class AttendanceApp(ctk.CTk):
         self.is_running = False
         self.known_encodings = []
         self.known_names = []
-        self.attendance_set = set() # To keep track of who is already marked in this session
+        self.attendance_set = set()
         self.load_encodings()
 
     def update_status(self, text):
@@ -113,7 +116,7 @@ class AttendanceApp(ctk.CTk):
 
     def log_attendance_gui(self, name, time_str):
         self.log_list.configure(state="normal")
-        self.log_list.insert("0.0", f"[{time_str}] {name}\n") # Insert at top
+        self.log_list.insert("0.0", f"[{time_str}] {name}\n")
         self.log_list.configure(state="disabled")
 
     def register_face(self):
@@ -145,7 +148,6 @@ class AttendanceApp(ctk.CTk):
                     self.name_entry.delete(0, 'end')
 
     def mark_attendance(self, name):
-        # Optimization: Don't write to file if already marked in this runtime session
         if name in self.attendance_set:
             return
 
@@ -153,7 +155,6 @@ class AttendanceApp(ctk.CTk):
         time_str = now.strftime('%H:%M:%S')
         file_exists = os.path.isfile(ATTENDANCE_FILE)
         
-        # Double check CSV to be safe
         if file_exists:
             df = pd.read_csv(ATTENDANCE_FILE)
             if name in df['Name'].values:
@@ -167,8 +168,15 @@ class AttendanceApp(ctk.CTk):
             writer.writerow([name, time_str])
         
         self.attendance_set.add(name)
-        self.log_attendance_gui(name, time_str) # Update GUI
+        self.log_attendance_gui(name, time_str)
         self.update_status(f"Marked: {name}")
+
+    def manual_attendance(self):
+        dialog = ctk.CTkInputDialog(text="Enter Name to Mark Present:", title="Manual Override")
+        name = dialog.get_input()
+        if name:
+            self.mark_attendance(name)
+            self.update_status(f"Manually Marked: {name}")
 
     def start_attendance(self):
         if self.is_running: return
